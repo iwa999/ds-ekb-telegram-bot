@@ -1,175 +1,54 @@
-# main.py - Исправленная версия для python-telegram-bot 20.7
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler
+import handlers
+from amocrm_integration import amocrm
 import logging
-import os
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-logger = logging.getLogger(__name__)
 
-# Токен бота
-TOKEN = os.getenv('TELEGRAM_TOKEN', '7437623986:AAFj-sItRC4s889Sop2mglRE7SE2c-drTCY')
+COLLECT_NAME, COLLECT_PHONE, COLLECT_DESCRIPTION = handlers.COLLECT_NAME, handlers.COLLECT_PHONE, handlers.COLLECT_DESCRIPTION
 
-# Основное меню
-def get_main_menu():
-    keyboard = [
-        [KeyboardButton("🔧 AI-диагностика"), KeyboardButton("📋 Заказать услугу")],
-        [KeyboardButton("📞 Контакты"), KeyboardButton("❓ FAQ")]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-# Команда /start
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Отправляет приветственное сообщение с меню"""
-    welcome_text = """
-🏢 Добро пожаловать в DS EKB!
-
-Мы специализируемся на:
-• Обслуживании вентиляции
-• Ремонте кондиционеров  
-• Обслуживании холодильного оборудования
-
-Выберите нужную услугу из меню ⬇️
-    """
+def main():
+    """Основная функция запуска бота"""
     
-    await update.message.reply_text(
-        welcome_text,
-        parse_mode='HTML',
-        reply_markup=get_main_menu()
-    )
-
-# Обработка AI-диагностики
-async def ai_diagnostics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработка запроса AI-диагностики"""
-    response = """
-🤖 AI-диагностика оборудования
-
-Для точной диагностики опишите проблему:
-• Тип оборудования (вентиляция/кондиционер/холодильное)
-• Симптомы неисправности
-• Когда появилась проблема
-
-Наш ИИ проанализирует данные и предложит решение!
-
-📞 Для срочной консультации: +7 922 130-83-65
-    """
+    # Инициализация amoCRM (используем код авторизации)
+    auth_code = "def502004cd15f612c0664a730ba9f08d14f769ab668602e988bcad536a3a87415a27113a48730e701adf128fc9915f74dc52baeb1a19488e781a18a8ec66ba09ff9db707798f32c71c527118510b9ad31339e95743bdbfa9a36a0c84a8dc0493006e1d68716638d4b395bfc2b9dd4fa52d9203e80ef70a3baa7f0a8f2562f50966bdf840aa7a66f99448437348eda2a2b63173e0601f6ec5a4528076285e30e513a5da32bb0401e737a0750316f6ac5dad67ed0c78049bf7526cdd89288cd68bf8d67c614f5bbb1e2323769609c71cece055111a34454ea0ace25eb3286b27634d1133ddc5ba2949a28d46542c5ba6cfdf67f2c592bbf2990eaf7d038a1e73b1f0b6f4dee97ad8362ba5fb9bebba8ae5f1f656f0516e334e5049315a8562a7c1d4caceb1f390011d7fbc5056cb35ab9a82843a02b8b7be3cb65f79a311520f104b2921f9079db8e4e864c297ced317d430eaa3deb0dea4fa10b2dea9f6d931f33ebecaafe2d05cead6047a4f78878154f77c283e9e90ef65b7b495ebb2063e86b4e5a5159294fabf90703349495f273c8d394180aa4db1c6edcc3c2ef5559f933645f232282d42ca848a7a118b3558b1b1ff2f43225d8ba2dceed18107025b465b9900e0460882d9d18039bf26e25a9dd34ede014910216507377a1f81db469e1cfe61a"
     
-    await update.message.reply_text(response, parse_mode='HTML')
-
-# Обработка заказа услуги
-async def order_service(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработка заказа услуги"""
-    response = """
-📋 Заказ услуги DS EKB
-
-Наши услуги:
-1️⃣ Обслуживание вентиляции (от 2000₽)
-2️⃣ Ремонт кондиционеров (от 1500₽)
-3️⃣ Обслуживание холодильного оборудования (от 3000₽)
-
-Для заказа укажите:
-• Тип услуги
-• Адрес объекта
-• Удобное время
-
-📞 Связаться с менеджером: +7 922 130-83-65
-💬 Или продолжите в этом чате
-    """
-    
-    await update.message.reply_text(response, parse_mode='HTML')
-
-# Контакты
-async def contacts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Отправка контактной информации"""
-    contacts_text = """
-📞 Контакты DS EKB
-
-Телефон: +7 922 130-83-65
-Email: info@ds-ekb.ru
-Сайт: ds-ekb.ru
-
-Режим работы:
-Пн-Пт: 08:00 - 20:00
-Сб-Вс: 09:00 - 18:00
-
-Аварийная служба: 24/7
-
-📍 Обслуживаем: Екатеринбург и область
-    """
-    
-    await update.message.reply_text(contacts_text, parse_mode='HTML')
-
-# FAQ
-async def faq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Часто задаваемые вопросы"""
-    faq_text = """
-❓ Часто задаваемые вопросы
-
-Q: Как часто нужно обслуживать кондиционер?
-A: Рекомендуем 2 раза в год - весной и осенью
-
-Q: Сколько стоит диагностика?
-A: AI-диагностика - бесплатно, выезд мастера - от 500₽
-
-Q: Работаете ли вы с юридическими лицами?
-A: Да, заключаем договоры и предоставляем все документы
-
-Q: Гарантия на работы?
-A: 6 месяцев на все виды работ
-
-📞 Остались вопросы? Звоните: +7 922 130-83-65
-    """
-    
-    await update.message.reply_text(faq_text, parse_mode='HTML')
-
-# Обработка всех остальных сообщений
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработка текстовых сообщений"""
-    text = update.message.text
-    
-    if "диагностика" in text.lower() or "🔧" in text:
-        await ai_diagnostics(update, context)
-    elif "заказать" in text.lower() or "📋" in text:
-        await order_service(update, context)
-    elif "контакт" in text.lower() or "📞" in text:
-        await contacts(update, context)
-    elif "faq" in text.lower() or "❓" in text:
-        await faq(update, context)
+    # Получаем токены amoCRM
+    if amocrm.get_access_token(auth_code):
+        logging.info("amoCRM успешно подключен!")
     else:
-        # Универсальный ответ
-        response = """
-Спасибо за сообщение! 
-
-Для быстрого ответа используйте кнопки меню или команду /start
-
-📞 Прямая связь: +7 922 130-83-65
-        """
-        await update.message.reply_text(response)
-
-# Обработка ошибок
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработка ошибок"""
-    logger.error(f'Update {update} caused error {context.error}')
-
-def main() -> None:
-    """Запуск бота"""
+        logging.error("Ошибка подключения к amoCRM")
+    
     # Создаем приложение
-    application = Application.builder().token(TOKEN).build()
+    application = Application.builder().token("7437623986:AAFj-sItRC4s889Sop2mglRE7SE2c-drTCY").build()
+    
+    # Обработчики диалогов для сбора данных
+    conversation_handler = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex("^🔧 AI-диагностика$"), handlers.ai_diagnostics),
+            MessageHandler(filters.Regex("^📋 Заказать услугу$"), handlers.order_service),
+        ],
+        states={
+            COLLECT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.collect_name)],
+            COLLECT_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.collect_phone)],
+            COLLECT_DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.collect_description)],
+        },
+        fallbacks=[CommandHandler("cancel", handlers.cancel)],
+    )
     
     # Добавляем обработчики
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    # Добавляем обработчик ошибок
-    application.add_error_handler(error_handler)
+    application.add_handler(CommandHandler("start", handlers.start))
+    application.add_handler(conversation_handler)
+    application.add_handler(MessageHandler(filters.Regex("^📞 Контакты$"), handlers.contacts))
+    application.add_handler(MessageHandler(filters.Regex("^❓ FAQ$"), handlers.faq))
     
     # Запускаем бота
-    logger.info("Запуск бота DS-EKB...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling()
 
 if __name__ == '__main__':
     main()
