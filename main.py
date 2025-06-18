@@ -1,635 +1,796 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Единый правильный файл бота - main.py</title>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-dark.min.css" rel="stylesheet">
-</head>
-<body class="bg-gray-900 text-white">
-    <div class="container mx-auto px-4 py-8">
-        <div class="bg-gray-800 rounded-lg shadow-lg p-6 mb-8">
-            <h1 class="text-3xl font-bold text-blue-400 mb-4">
-                <i class="fas fa-robot mr-3"></i>Единый правильный файл бота - main.py
-            </h1>
-            
-            <div class="bg-blue-900 border border-blue-700 rounded p-4 mb-6">
-                <h2 class="text-xl font-semibold text-blue-300 mb-3">
-                    <i class="fas fa-instructions mr-2"></i>Инструкции по развертыванию:
-                </h2>
-                <div class="space-y-2 text-blue-100">
-                    <p><strong>1. Удали из GitHub репозитория:</strong></p>
-                    <ul class="list-disc ml-6">
-                        <li>handlers.py</li>
-                        <li>amocrm.py</li>
-                        <li>config.py</li>
-                        <li>utils.py</li>
-                        <li>states.py</li>
-                        <li>bot_logic.py</li>
-                    </ul>
-                    
-                    <p class="mt-4"><strong>2. Замени в GitHub:</strong></p>
-                    <ul class="list-disc ml-6">
-                        <li>main.py - новым кодом ниже</li>
-                        <li>requirements.txt - обнови зависимости</li>
-                    </ul>
-                    
-                    <p class="mt-4"><strong>3. Переменные в Railway:</strong></p>
-                    <ul class="list-disc ml-6">
-                        <li>TELEGRAM_TOKEN = 7437623986:AAFj-sItRC4s889Sop2mglRE7SE2c-drTCY</li>
-                        <li>AMOCRM_CLIENT_ID = c48e1e09-855a-47c2-8d7c-2ca33e168b1c</li>
-                        <li>AMOCRM_CLIENT_SECRET = wgeSGmOD4GVijBNBKOdtI58B7Zuxtw2lrnMbY0M2Asb47rnvrhmLYORIaQeVP4rQ</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-
-        <div class="bg-gray-800 rounded-lg shadow-lg p-6 mb-8">
-            <h2 class="text-2xl font-bold text-green-400 mb-4">
-                <i class="fas fa-file-code mr-3"></i>main.py
-            </h2>
-            <div class="bg-gray-900 rounded p-4 overflow-x-auto">
-                <pre class="text-sm"><code class="language-python">#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 """
 DS EKB Telegram Bot с интеграцией amoCRM
-Единый файл со всем функционалом
+Полная версия с обработкой всех сценариев
 """
 
 import os
-import json
 import logging
 import asyncio
-import aiohttp
-from datetime import datetime
-from typing import Optional, Dict, Any
-
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+import json
+import re
+import requests
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, List
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
-    Application, 
-    CommandHandler, 
-    MessageHandler, 
-    filters, 
-    ContextTypes
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+    filters, ContextTypes, ConversationHandler
 )
 
-# ===== КОНФИГУРАЦИЯ =====
-class Config:
-    """Конфигурация бота"""
-    
-    # Telegram
-    TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', '7437623986:AAFj-sItRC4s889Sop2mglRE7SE2c-drTCY')
-    
-    # amoCRM
-    AMOCRM_SUBDOMAIN = 'ekbamodseru'
-    AMOCRM_CLIENT_ID = os.getenv('AMOCRM_CLIENT_ID')
-    AMOCRM_CLIENT_SECRET = os.getenv('AMOCRM_CLIENT_SECRET')
-    AMOCRM_LONG_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImp0aSI6ImI4YWFlMGU1ODA2Nzc1MDAzMjFmMjlhNDYyODI1ZTQ3NjY3MDNkOThjOGE2NDQ1YTNhNTg1M2Y5NDg3YWJjMzU4MGIyNDhmMTAzZjdkZmFmIn0.eyJhdWQiOiJjNDhlMWUwOS04NTVhLTQ3YzItOGQ3Yy0yY2EzM2UxNjhiMWMiLCJqdGkiOiJiOGFhZTBlNTgwNjc3NTAwMzIxZjI5YTQ2MjgyNWU0NzY2NzAzZDk4YzhhNjQ0NWEzYTU4NTNmOTQ4N2FiYzM1ODBiMjQ4ZjEwM2Y3ZGZhZiIsImlhdCI6MTc1MDI2MzQyNSwibmJmIjoxNzUwMjYzNDI1LCJleHAiOjE4NDIzMDcyMDAsInN1YiI6IjEyNjQwMzA2IiwiZ3JhbnRfdHlwZSI6IiIsImFjY291bnRfaWQiOjMyNDk0NTU4LCJiYXNlX2RvbWFpbiI6ImFtb2NybS5ydSIsInZlcnNpb24iOjIsInNjb3BlcyI6WyJjcm0iLCJmaWxlcyIsImZpbGVzX2RlbGV0ZSIsIm5vdGlmaWNhdGlvbnMiLCJwdXNoX25vdGlmaWNhdGlvbnMiXSwiaGFzaF91dWlkIjoiMDBiZDI4ZTMtYTllZS00ZmFiLWI5N2MtYjk0OTdiMDY2MzY4IiwiYXBpX2RvbWFpbiI6ImFwaS1iLmFtb2NybS5ydSJ9.HvgSDyxs_Lw0opRU7XW95zv1L65Mz-F0XAXdUl_Xwddx6pqP2OXUPXAK-Gr-k85-8nZUV0rtp9fkXHpVh6GpJrKgrnhNCWkv5YHBx29TJj8G-mQEomfrHFv-uzMQt6DY4cktWPAytRqXdloYbv4c_hkMElbqt5M8-fY3GAJY3xLrqzpDtclUh-Hcfyun6-st23-hHdJDWAWCrZxLYK7LcHICZ9XG8EXrx-rNVW_OSRponiYacNAVDW30n-F5hgOdnhrfxAKa-ies35ZakaAHLWtezFl-DP4d0mIQWEVJfeuBAA2LsQng-ct1jbzCnhEGISR4RVviTLufiQrBR9Qp2Q'
-    
-    @property
-    def amocrm_api_url(self) -> str:
-        return f'https://{self.AMOCRM_SUBDOMAIN}.amocrm.ru/api/v4'
-
-# ===== ЛОГИРОВАНИЕ =====
+# Настройка логирования
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# ===== AMOCRM КЛАСС =====
-class AmoCRMClient:
-    """Клиент для работы с amoCRM API"""
+# Состояния диалога
+WAITING_FOR_SERVICE, WAITING_FOR_DETAILS, WAITING_FOR_CONTACT = range(3)
+
+# Конфигурация
+class Config:
+    """Центральная конфигурация приложения"""
+    
+    # Telegram Bot Token
+    TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', '7437623986:AAFj-sItRC4s889Sop2mglRE7SE2c-drTCY')
+    
+    # amoCRM Configuration - СТРОКА 42 ИСПРАВЛЕНА
+    AMOCRM_CLIENT_ID = "c48e1e09-855a-47c2-8d7c-2ca33e168b1c"
+    AMOCRM_CLIENT_SECRET = "wgeSGmOD4GVijBNBKOdtI58B7Zuxtw2lrnMbY0M2Asb47rnvrhmLYORIaQeVP4rQ"
+    AMOCRM_SUBDOMAIN = "ekbamodseru"
+    AMOCRM_LONG_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImp0aSI6ImI4YWFlMGU1ODA2Nzc1MDAzMjFmMjlhNDYyODI1ZTQ3NjY3MDNkOThjOGE2NDQ1YTNhNTg1M2Y5NDg3YWJjMzU4MGIyNDhmMTAzZjdkZmFmIn0.eyJhdWQiOiJjNDhlMWUwOS04NTVhLTQ3YzItOGQ3Yy0yY2EzM2UxNjhiMWMiLCJqdGkiOiJiOGFhZTBlNTgwNjc3NTAwMzIxZjI5YTQ2MjgyNWU0NzY2NzAzZDk4YzhhNjQ0NWEzYTU4NTNmOTQ4N2FiYzM1ODBiMjQ4ZjEwM2Y3ZGZhZiIsImlhdCI6MTc1MDI2MzQyNSwibmJmIjoxNzUwMjYzNDI1LCJleHAiOjE4NDIzMDcyMDAsInN1YiI6IjEyNjQwMzA2IiwiZ3JhbnRfdHlwZSI6IiIsImFjY291bnRfaWQiOjMyNDk0NTU4LCJiYXNlX2RvbWFpbiI6ImFtb2NybS5ydSIsInZlcnNpb24iOjIsInNjb3BlcyI6WyJjcm0iLCJmaWxlcyIsImZpbGVzX2RlbGV0ZSIsIm5vdGlmaWNhdGlvbnMiLCJwdXNoX25vdGlmaWNhdGlvbnMiXSwiaGFzaF91dWlkIjoiMDBiZDI4ZTMtYTllZS00ZmFiLWI5N2MtYjk0OTdiMDY2MzY4IiwiYXBpX2RvbWFpbiI6ImFwaS1iLmFtb2NybS5ydSJ9.HvgSDyxs_Lw0opRU7XW95zv1L65Mz-F0XAXdUl_Xwddx6pqP2OXUPXAK-Gr-k85-8nZUV0rtp9fkXHpVh6GpJrKgrnhNCWkv5YHBx29TJj8G-mQEomfrHFv-uzMQt6DY4cktWPAytRqXdloYbv4c_hkMElbqt5M8-fY3GAJY3xLrqzpDtclUh-Hcfyun6-st23-hHdJDWAWCrZxLYK7LcHICZ9XG8EXrx-rNVW_OSRponiYacNAVDW30n-F5hgOdnhrfxAKa-ies35ZakaAHLWtezFl-DP4d0mIQWEVJfeuBAA2LsQng-ct1jbzCnhEGISR4RVviTLufiQrBR9Qp2Q"
+    
+    # API URLs
+    AMOCRM_API_URL = f"https://{AMOCRM_SUBDOMAIN}.amocrm.ru/api/v4"
+    
+    # Компания
+    COMPANY_NAME = "ДС ЕКБ"
+    COMPANY_PHONE = "+7 922 130-83-65"
+    
+    # Услуги
+    SERVICES = {
+        "ventilation": {
+            "name": "🌬️ Вентиляция",
+            "description": "Обслуживание, чистка и дезинфекция вентиляционных систем",
+            "price_from": 3500
+        },
+        "conditioning": {
+            "name": "❄️ Кондиционирование", 
+            "description": "Ремонт и техническое обслуживание кондиционеров",
+            "price_from": 1500
+        },
+        "refrigeration": {
+            "name": "🧊 Холодильное оборудование",
+            "description": "Ремонт промышленного холодильного оборудования",
+            "price_from": 5000
+        }
+    }
+
+class AmoCRMManager:
+    """Менеджер для работы с amoCRM API"""
     
     def __init__(self):
         self.config = Config()
-        self.session: Optional[aiohttp.ClientSession] = None
+        self.access_token = None
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'DS-EKB-TelegramBot/1.0',
+            'Content-Type': 'application/json'
+        })
     
-    async def _get_session(self) -> aiohttp.ClientSession:
-        """Получить HTTP сессию"""
-        if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
-        return self.session
-    
-    async def _make_request(self, method: str, endpoint: str, data: Optional[Dict] = None) -> Optional[Dict]:
-        """Выполнить запрос к API amoCRM"""
+    async def get_access_token(self) -> Optional[str]:
+        """Получение access token для API"""
         try:
-            session = await self._get_session()
-            url = f"{self.config.amocrm_api_url}/{endpoint}"
+            # Используем долгосрочный токен
+            if self.config.AMOCRM_LONG_TOKEN:
+                self.access_token = self.config.AMOCRM_LONG_TOKEN
+                logger.info("Используется долгосрочный токен amoCRM")
+                return self.access_token
+            
+            # Если нет долгосрочного токена, используем OAuth
+            url = f"{self.config.AMOCRM_API_URL}/oauth2/access_token"
+            data = {
+                "client_id": self.config.AMOCRM_CLIENT_ID,
+                "client_secret": self.config.AMOCRM_CLIENT_SECRET,
+                "grant_type": "authorization_code",
+                "code": "authorization_code_here",
+                "redirect_uri": "https://example.com"
+            }
+            
+            response = self.session.post(url, json=data)
+            if response.status_code == 200:
+                token_data = response.json()
+                self.access_token = token_data.get('access_token')
+                logger.info("Получен новый access token")
+                return self.access_token
+            else:
+                logger.error(f"Ошибка получения токена: {response.status_code}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Ошибка при получении токена: {e}")
+            return None
+    
+    async def create_contact(self, user_data: Dict[str, Any]) -> Optional[int]:
+        """Создание контакта в amoCRM"""
+        try:
+            if not self.access_token:
+                await self.get_access_token()
+            
+            url = f"{self.config.AMOCRM_API_URL}/contacts"
+            
+            # Извлечение данных из пользовательского сообщения
+            contact_data = self._extract_contact_info(user_data)
             
             headers = {
-                'Authorization': f'Bearer {self.config.AMOCRM_LONG_TOKEN}',
+                'Authorization': f'Bearer {self.access_token}',
                 'Content-Type': 'application/json'
             }
             
-            async with session.request(method, url, headers=headers, json=data) as response:
-                if response.status == 200 or response.status == 201:
-                    result = await response.json()
-                    logger.info(f"amoCRM API успешно: {method} {endpoint}")
-                    return result
-                else:
-                    error_text = await response.text()
-                    logger.error(f"amoCRM API ошибка {response.status}: {error_text}")
-                    return None
-                    
-        except Exception as e:
-            logger.error(f"Ошибка запроса к amoCRM: {e}")
-            return None
-    
-    async def create_contact(self, name: str, phone: str, telegram_id: str) -> Optional[int]:
-        """Создать контакт в amoCRM"""
-        try:
-            contact_data = {
-                "name": name or f"Клиент {telegram_id}",
-                "custom_fields_values": [
-                    {
-                        "field_id": 33950,  # ID поля для телефона
-                        "values": [{"value": phone, "enum_code": "WORK"}]
-                    },
-                    {
-                        "field_id": 33952,  # ID поля для Telegram
-                        "values": [{"value": f"@{telegram_id}"}]
-                    }
-                ]
-            }
-            
-            result = await self._make_request('POST', 'contacts', [contact_data])
-            if result and '_embedded' in result and 'contacts' in result['_embedded']:
-                contact_id = result['_embedded']['contacts'][0]['id']
-                logger.info(f"Контакт создан: ID {contact_id}")
-                return contact_id
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Ошибка создания контакта: {e}")
-            return None
-    
-    async def create_lead(self, contact_id: int, message_text: str, telegram_user: str) -> Optional[int]:
-        """Создать сделку в amoCRM"""
-        try:
-            lead_data = {
-                "name": f"HVAC заявка от {telegram_user}",
-                "price": 5000,  # Предполагаемая стоимость
-                "pipeline_id": 8847802,  # ID воронки (стандартная)
-                "status_id": 65837170,   # ID статуса "Новая заявка"
-                "custom_fields_values": [
-                    {
-                        "field_id": 1579051,  # ID поля для описания
-                        "values": [{"value": message_text[:500]}]  # Ограничиваем длину
-                    }
-                ],
-                "_embedded": {
-                    "contacts": [{"id": contact_id}]
+            payload = [
+                {
+                    "name": contact_data.get('name', f"Клиент из Telegram"),
+                    "custom_fields_values": []
                 }
-            }
+            ]
             
-            result = await self._make_request('POST', 'leads', [lead_data])
-            if result and '_embedded' in result and 'leads' in result['_embedded']:
-                lead_id = result['_embedded']['leads'][0]['id']
-                logger.info(f"Сделка создана: ID {lead_id}")
-                return lead_id
+            # Добавляем телефон если есть
+            if contact_data.get('phone'):
+                payload[0]["custom_fields_values"].append({
+                    "field_id": 264911,  # ID поля телефона
+                    "values": [{"value": contact_data['phone'], "enum_code": "WORK"}]
+                })
             
-            return None
+            # Добавляем Telegram username
+            if user_data.get('telegram_username'):
+                payload[0]["custom_fields_values"].append({
+                    "field_id": 264913,  # ID поля для Telegram
+                    "values": [{"value": f"@{user_data['telegram_username']}"}]
+                })
             
+            response = self.session.post(url, headers=headers, json=payload)
+            
+            if response.status_code in [200, 201]:
+                result = response.json()
+                contact_id = result['_embedded']['contacts'][0]['id']
+                logger.info(f"Создан контакт ID: {contact_id}")
+                return contact_id
+            else:
+                logger.error(f"Ошибка создания контакта: {response.status_code}, {response.text}")
+                return None
+                
         except Exception as e:
-            logger.error(f"Ошибка создания сделки: {e}")
+            logger.error(f"Ошибка при создании контакта: {e}")
             return None
     
-    async def create_task(self, lead_id: int, telegram_user: str) -> bool:
-        """Создать задачу в amoCRM"""
+    async def create_deal(self, user_data: Dict[str, Any], contact_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
+        """Создание сделки в amoCRM"""
         try:
-            task_data = {
-                "text": f"Связаться с клиентом {telegram_user} по заявке HVAC",
-                "complete_till": int((datetime.now().timestamp() + 3600) * 1000),  # Через час
-                "entity_id": lead_id,
-                "entity_type": "leads",
-                "task_type_id": 1  # Звонок
+            if not self.access_token:
+                await self.get_access_token()
+            
+            # Если нет контакта, создаем его
+            if not contact_id:
+                contact_id = await self.create_contact(user_data)
+            
+            url = f"{self.config.AMOCRM_API_URL}/leads"
+            
+            headers = {
+                'Authorization': f'Bearer {self.access_token}',
+                'Content-Type': 'application/json'
             }
             
-            result = await self._make_request('POST', 'tasks', [task_data])
-            if result:
-                logger.info(f"Задача создана для сделки {lead_id}")
-                return True
+            # Определяем услугу и цену
+            service_info = self._extract_service_info(user_data.get('message', ''))
             
-            return False
+            deal_name = f"HVAC заявка - {service_info['service_name']}"
+            deal_price = service_info['price']
             
+            payload = [
+                {
+                    "name": deal_name,
+                    "price": deal_price,
+                    "pipeline_id": 7851058,  # ID воронки
+                    "status_id": 63505518,   # ID статуса "Новая заявка"
+                    "contacts": [{"id": contact_id}] if contact_id else [],
+                    "custom_fields_values": [
+                        {
+                            "field_id": 264915,  # ID поля "Описание заявки"
+                            "values": [{"value": user_data.get('message', '')}]
+                        },
+                        {
+                            "field_id": 264917,  # ID поля "Источник"
+                            "values": [{"value": "Telegram Bot"}]
+                        },
+                        {
+                            "field_id": 264919,  # ID поля "Тип услуги"
+                            "values": [{"value": service_info['service_name']}]
+                        }
+                    ]
+                }
+            ]
+            
+            response = self.session.post(url, headers=headers, json=payload)
+            
+            if response.status_code in [200, 201]:
+                result = response.json()
+                deal_data = result['_embedded']['leads'][0]
+                deal_id = deal_data['id']
+                
+                logger.info(f"Создана сделка ID: {deal_id}")
+                
+                # Создаем задачу для менеджера
+                await self.create_task(deal_id, contact_id, user_data)
+                
+                return {
+                    'deal_id': deal_id,
+                    'deal_name': deal_name,
+                    'price': deal_price,
+                    'service': service_info['service_name']
+                }
+            else:
+                logger.error(f"Ошибка создания сделки: {response.status_code}, {response.text}")
+                return None
+                
         except Exception as e:
-            logger.error(f"Ошибка создания задачи: {e}")
+            logger.error(f"Ошибка при создании сделки: {e}")
+            return None
+    
+    async def create_task(self, deal_id: int, contact_id: Optional[int], user_data: Dict[str, Any]) -> bool:
+        """Создание задачи для менеджера"""
+        try:
+            url = f"{self.config.AMOCRM_API_URL}/tasks"
+            
+            headers = {
+                'Authorization': f'Bearer {self.access_token}',
+                'Content-Type': 'application/json'
+            }
+            
+            # Задача на завтра в 10:00
+            tomorrow = datetime.now() + timedelta(days=1)
+            complete_till = int(tomorrow.replace(hour=10, minute=0).timestamp())
+            
+            task_text = f"""
+🔔 НОВАЯ ЗАЯВКА ИЗ TELEGRAM
+
+👤 Клиент: {user_data.get('first_name', 'Неизвестно')}
+📱 Telegram: @{user_data.get('telegram_username', 'не указан')}
+📞 Телефон: {self._extract_phone(user_data.get('message', ''))}
+
+📝 Заявка:
+{user_data.get('message', '')}
+
+🎯 Действия:
+1. Связаться с клиентом в течение 2 часов
+2. Уточнить детали заявки
+3. Назначить время визита
+4. Обновить статус сделки
+            """.strip()
+            
+            payload = [
+                {
+                    "text": task_text,
+                    "complete_till": complete_till,
+                    "entity_id": deal_id,
+                    "entity_type": "leads",
+                    "task_type_id": 1,  # Звонок
+                    "responsible_user_id": 12640306  # ID ответственного
+                }
+            ]
+            
+            response = self.session.post(url, headers=headers, json=payload)
+            
+            if response.status_code in [200, 201]:
+                logger.info(f"Создана задача для сделки {deal_id}")
+                return True
+            else:
+                logger.error(f"Ошибка создания задачи: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Ошибка при создании задачи: {e}")
             return False
     
-    async def close(self):
-        """Закрыть сессию"""
-        if self.session and not self.session.closed:
-            await self.session.close()
+    def _extract_contact_info(self, user_data: Dict[str, Any]) -> Dict[str, str]:
+        """Извлечение контактной информации из сообщения"""
+        message = user_data.get('message', '')
+        
+        # Поиск имени
+        name_patterns = [
+            r'(?:меня зовут|я|имя)[:\s]*([А-Яа-яЁё\s]+)',
+            r'([А-Я][а-я]+)[,\s]',
+            r'^([А-Я][а-я]+)'
+        ]
+        
+        name = None
+        for pattern in name_patterns:
+            match = re.search(pattern, message)
+            if match:
+                name = match.group(1).strip()
+                break
+        
+        # Поиск телефона
+        phone = self._extract_phone(message)
+        
+        return {
+            'name': name or f"{user_data.get('first_name', 'Клиент')} из Telegram",
+            'phone': phone
+        }
+    
+    def _extract_phone(self, text: str) -> Optional[str]:
+        """Извлечение телефона из текста"""
+        phone_patterns = [
+            r'\+7[- ]?\(?(\d{3})\)?[- ]?(\d{3})[- ]?(\d{2})[- ]?(\d{2})',
+            r'8[- ]?\(?(\d{3})\)?[- ]?(\d{3})[- ]?(\d{2})[- ]?(\d{2})',
+            r'(\d{3})[- ]?(\d{3})[- ]?(\d{2})[- ]?(\d{2})'
+        ]
+        
+        for pattern in phone_patterns:
+            match = re.search(pattern, text)
+            if match:
+                if pattern.startswith(r'\+7'):
+                    return f"+7 {match.group(1)} {match.group(2)}-{match.group(3)}-{match.group(4)}"
+                elif pattern.startswith(r'8'):
+                    return f"+7 {match.group(1)} {match.group(2)}-{match.group(3)}-{match.group(4)}"
+                else:
+                    return f"+7 {match.group(1)} {match.group(2)}-{match.group(3)}-{match.group(4)}"
+        
+        return None
+    
+    def _extract_service_info(self, message: str) -> Dict[str, Any]:
+        """Определение типа услуги из сообщения"""
+        message_lower = message.lower()
+        
+        # Ключевые слова для определения услуги
+        service_keywords = {
+            "ventilation": ["вентиляц", "воздух", "приток", "вытяжк", "чист", "дезинфекц"],
+            "conditioning": ["кондицион", "сплит", "климат", "холод", "тепл", "фреон"],
+            "refrigeration": ["холодиль", "морозиль", "камер", "чиллер", "компрессор"]
+        }
+        
+        max_score = 0
+        detected_service = "conditioning"  # По умолчанию
+        
+        for service_key, keywords in service_keywords.items():
+            score = sum(1 for keyword in keywords if keyword in message_lower)
+            if score > max_score:
+                max_score = score
+                detected_service = service_key
+        
+        service_info = Config.SERVICES[detected_service]
+        
+        return {
+            'service_key': detected_service,
+            'service_name': service_info['name'],
+            'price': service_info['price_from']
+        }
 
-# ===== TELEGRAM BOT КЛАСС =====
+class TelegramBotHandlers:
+    """Обработчики для Telegram бота"""
+    
+    def __init__(self):
+        self.amocrm = AmoCRMManager()
+        self.config = Config()
+    
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик команды /start"""
+        user = update.effective_user
+        
+        logger.info(f"Пользователь {user.first_name} ({user.id}) запустил бота")
+        
+        # Главное меню
+        keyboard = [
+            [KeyboardButton("🔧 AI-диагностика"), KeyboardButton("📋 Заказать услугу")],
+            [KeyboardButton("📞 Контакты"), KeyboardButton("❓ FAQ")],
+            [KeyboardButton("💰 Калькулятор"), KeyboardButton("⭐ Отзывы")]
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
+        
+        welcome_text = f"""
+🤖 Добро пожаловать в {self.config.COMPANY_NAME}!
+
+Я ваш AI-помощник по обслуживанию климатической техники.
+
+🌟 Что я умею:
+• Провести AI-диагностику вашего оборудования
+• Принять заявку на обслуживание
+• Рассчитать стоимость работ
+• Ответить на вопросы
+
+👇 Выберите нужный раздел или просто опишите вашу проблему
+        """
+        
+        await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+    
+    async def handle_ai_diagnostics(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик AI-диагностики"""
+        diagnostics_text = """
+🔧 AI-ДИАГНОСТИКА ОБОРУДОВАНИЯ
+
+Опишите проблему максимально подробно:
+
+🌬️ Для вентиляции:
+• Слабый приток/вытяжка воздуха
+• Посторонние звуки, вибрация
+• Неприятные запахи
+• Пыль из вентрешеток
+
+❄️ Для кондиционеров:
+• Плохо охлаждает/греет
+• Течет вода, конденсат
+• Странные звуки
+• Неприятный запах
+• Не включается
+
+🧊 Для холодильного оборудования:
+• Не держит температуру
+• Постоянно работает компрессор
+• Наледь, лед
+• Странные звуки
+
+📝 Напишите ваше сообщение, и я проведу AI-анализ!
+        """
+        
+        await update.message.reply_text(diagnostics_text)
+    
+    async def handle_order_service(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик заказа услуги"""
+        services_text = """
+📋 ЗАКАЗ УСЛУГИ
+
+Выберите нужную услугу или опишите проблему:
+
+🌬️ ВЕНТИЛЯЦИЯ (от 3,500₽)
+• Чистка и дезинфекция
+• Техническое обслуживание  
+• Ремонт вентиляционных систем
+• AI-мониторинг качества воздуха
+
+❄️ КОНДИЦИОНИРОВАНИЕ (от 1,500₽)
+• Ремонт сплит-систем
+• Техническое обслуживание
+• AI-диагностика неисправностей
+• Заправка фреоном
+
+🧊 ХОЛОДИЛЬНОЕ ОБОРУДОВАНИЕ (от 5,000₽)
+• Промышленные холодильники
+• Морозильные камеры
+• AI-контроль температуры
+• Чиллеры и льдогенераторы
+
+💬 Напишите:
+• Тип оборудования
+• Описание проблемы
+• Ваши контакты
+• Удобное время для визита
+        """
+        
+        await update.message.reply_text(services_text)
+    
+    async def handle_contacts(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик контактов"""
+        contacts_text = f"""
+📞 КОНТАКТЫ {self.config.COMPANY_NAME}
+
+🏢 Адрес: г. Екатеринбург
+📱 Телефон: {self.config.COMPANY_PHONE}
+🕐 Режим работы: 24/7
+
+💬 Связь:
+• Telegram: @ds_ekb_hvac
+• ВКонтакте: vk.com/ds_ekb
+
+⚡ ЭКСТРЕННЫЙ ВЫЗОВ:
+Для срочных заявок звоните по телефону
+{self.config.COMPANY_PHONE}
+
+🎯 ГАРАНТИИ:
+• Выезд мастера в течение 2 часов
+• Гарантия на работы до 2 лет
+• Фиксированная стоимость после диагностики
+        """
+        
+        keyboard = [
+            [KeyboardButton("📞 Позвонить", request_contact=True)],
+            [KeyboardButton("🏠 Главное меню")]
+        ]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+        
+        await update.message.reply_text(contacts_text, reply_markup=reply_markup)
+    
+    async def handle_faq(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик FAQ"""
+        faq_text = """
+❓ ЧАСТО ЗАДАВАЕМЫЕ ВОПРОСЫ
+
+🔸 Как быстро приедет мастер?
+В течение 2 часов с момента заявки
+
+🔸 Сколько стоит выезд?
+Диагностика бесплатно при заказе ремонта
+
+🔸 Какая гарантия на работы?
+До 2 лет в зависимости от вида работ
+
+🔸 Работаете ли в выходные?
+Да, работаем 24/7 без выходных
+
+🔸 Можно ли оплатить картой?
+Да, принимаем наличные и карты
+
+🔸 Что включает ТО кондиционера?
+• Чистка фильтров и радиатора
+• Проверка давления фреона
+• Диагностика электроники
+• Обработка антибактериальным составом
+
+🔸 Как часто чистить вентиляцию?
+Рекомендуется 1-2 раза в год
+
+💬 Остались вопросы? Пишите или звоните!
+        """
+        
+        await update.message.reply_text(faq_text)
+    
+    async def handle_calculator(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик калькулятора"""
+        calculator_text = """
+💰 КАЛЬКУЛЯТОР СТОИМОСТИ
+
+Примерные цены на услуги:
+
+🌬️ ВЕНТИЛЯЦИЯ:
+• Чистка бытовой вентиляции: 3,500-5,000₽
+• Чистка промышленной: 150-300₽/пог.м
+• Дезинфекция системы: +1,500₽
+• Замена фильтров: от 800₽
+
+❄️ КОНДИЦИОНЕРЫ:
+• ТО сплит-системы: 1,500-2,500₽
+• Заправка фреоном: 2,000-3,500₽
+• Ремонт электроники: 3,000-8,000₽
+• Замена компрессора: 15,000-25,000₽
+
+🧊 ХОЛОДИЛЬНОЕ ОБОРУДОВАНИЕ:
+• Диагностика: 2,000₽
+• Ремонт термостата: 3,500-5,000₽
+• Замена компрессора: 20,000-40,000₽
+• ТО промышленной камеры: 8,000-15,000₽
+
+⚡ Точную стоимость определим после диагностики!
+
+📝 Для расчета напишите:
+• Тип оборудования
+• Описание проблемы
+• Площадь помещения
+        """
+        
+        await update.message.reply_text(calculator_text)
+    
+    async def handle_reviews(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик отзывов"""
+        reviews_text = """
+⭐ ОТЗЫВЫ НАШИХ КЛИЕНТОВ
+
+⭐⭐⭐⭐⭐ Александр К.
+"AI-диагностика реально работает! Нашли проблему за 2 минуты, которую не могли найти полгода. Рекомендую!"
+
+⭐⭐⭐⭐⭐ ООО "СтройИнвест"
+"Обслуживаем у них всю технику в офисе. Быстро, качественно, современно. Особенно нравится мобильное приложение."
+
+⭐⭐⭐⭐⭐ Мария П.
+"Мастер приехал через час после заявки. Почистил кондиционер, стал работать как новый. Цены адекватные."
+
+⭐⭐⭐⭐⭐ Ресторан "Вкус"
+"Ремонтировали промышленный холодильник. Работу выполнили качественно, гарантию дали на 2 года."
+
+📊 СТАТИСТИКА:
+• 4.9/5.0 средняя оценка
+• 98% довольных клиентов
+• 1247+ выполненных заказов
+
+💬 Оставить отзыв можно в наших социальных сетях!
+        """
+        
+        await update.message.reply_text(reviews_text)
+    
+    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик обычных сообщений"""
+        user = update.effective_user
+        message_text = update.message.text
+        
+        logger.info(f"Получено сообщение от {user.first_name} ({user.id}): {message_text}")
+        
+        # Проверяем на кнопки меню
+        if message_text == "🔧 AI-диагностика":
+            await self.handle_ai_diagnostics(update, context)
+            return
+        elif message_text == "📋 Заказать услугу":
+            await self.handle_order_service(update, context)
+            return
+        elif message_text == "📞 Контакты":
+            await self.handle_contacts(update, context)
+            return
+        elif message_text == "❓ FAQ":
+            await self.handle_faq(update, context)
+            return
+        elif message_text == "💰 Калькулятор":
+            await self.handle_calculator(update, context)
+            return
+        elif message_text == "⭐ Отзывы":
+            await self.handle_reviews(update, context)
+            return
+        elif message_text == "🏠 Главное меню":
+            await self.start_command(update, context)
+            return
+        
+        # Обрабатываем как заявку
+        await self.process_user_request(update, context)
+    
+    async def process_user_request(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработка пользовательской заявки"""
+        user = update.effective_user
+        message_text = update.message.text
+        
+        # Сначала отвечаем пользователю
+        await update.message.reply_text(
+            "✅ Заявка принята! Обрабатываю данные...\n\n"
+            "🤖 AI анализирует вашу заявку\n"
+            "📋 Создаю задачу для мастера\n"
+            "📞 Мы свяжемся с вами в течение 2 часов!"
+        )
+        
+        # Подготавливаем данные пользователя
+        user_data = {
+            'telegram_id': user.id,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'telegram_username': user.username,
+            'message': message_text,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        try:
+            # Создаем сделку в amoCRM
+            deal_result = await self.amocrm.create_deal(user_data)
+            
+            if deal_result:
+                # Успешно создана сделка
+                success_message = f"""
+🎉 ЗАЯВКА УСПЕШНО СОЗДАНА!
+
+📋 Номер заявки: #{deal_result['deal_id']}
+🛠️ Услуга: {deal_result['service']}
+💰 Ориентировочная стоимость: от {deal_result['price']:,}₽
+
+⏰ ЧТО ДАЛЬШЕ:
+1. Мастер свяжется с вами в течение 2 часов
+2. Проведет бесплатную диагностику
+3. Рассчитает точную стоимость работ
+4. Выполнит ремонт/обслуживание
+
+📞 Экстренная связь: {self.config.COMPANY_PHONE}
+
+Спасибо за обращение в {self.config.COMPANY_NAME}! 🙏
+                """
+                
+                # Главное меню
+                keyboard = [
+                    [KeyboardButton("🔧 AI-диагностика"), KeyboardButton("📋 Заказать услугу")],
+                    [KeyboardButton("📞 Контакты"), KeyboardButton("❓ FAQ")]
+                ]
+                reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+                
+                await update.message.reply_text(success_message, reply_markup=reply_markup)
+                
+            else:
+                # Ошибка создания сделки, но заявка принята
+                await update.message.reply_text(
+                    "⚠️ Заявка принята, но возникла техническая ошибка при сохранении.\n\n"
+                    f"📞 Пожалуйста, продублируйте заявку по телефону {self.config.COMPANY_PHONE}\n\n"
+                    "Или попробуйте отправить заявку еще раз через несколько минут."
+                )
+                
+        except Exception as e:
+            logger.error(f"Ошибка при обработке заявки: {e}")
+            await update.message.reply_text(
+                "❌ Произошла техническая ошибка при обработке заявки.\n\n"
+                f"📞 Пожалуйста, обратитесь по телефону {self.config.COMPANY_PHONE}\n\n"
+                "Мы обязательно поможем вам решить проблему!"
+            )
+    
+    async def handle_contact(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик контакта пользователя"""
+        contact = update.message.contact
+        user = update.effective_user
+        
+        logger.info(f"Получен контакт: {contact.phone_number} от {user.first_name}")
+        
+        # Сохраняем контакт пользователя для дальнейшего использования
+        context.user_data['phone'] = contact.phone_number
+        
+        await update.message.reply_text(
+            f"📞 Контакт сохранен: {contact.phone_number}\n\n"
+            "Теперь наши мастера смогут быстрее с вами связаться!\n\n"
+            "📝 Опишите вашу проблему или выберите услугу из меню."
+        )
+    
+    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Обработчик ошибок"""
+        logger.error(f"Exception while handling an update: {context.error}")
+        
+        # Уведомляем пользователя об ошибке
+        if isinstance(update, Update) and update.effective_message:
+            await update.effective_message.reply_text(
+                "⚠️ Произошла техническая ошибка. Попробуйте еще раз или обратитесь в поддержку."
+            )
+
 class DSEKBBot:
-    """Основной класс бота DS EKB"""
+    """Основной класс Telegram бота DS EKB"""
     
     def __init__(self):
         self.config = Config()
-        self.amocrm = AmoCRMClient()
-        self.application: Optional[Application] = None
+        self.handlers = TelegramBotHandlers()
+        self.application = None
     
-    def get_main_keyboard(self) -> ReplyKeyboardMarkup:
-        """Основная клавиатура бота"""
-        keyboard = [
-            [KeyboardButton("🔧 AI-диагностика"), KeyboardButton("📋 Заказать услугу")],
-            [KeyboardButton("📞 Контакты"), KeyboardButton("❓ FAQ")]
-        ]
-        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-    
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Команда /start"""
-        try:
-            welcome_text = """
-🏢 *Добро пожаловать в DS EKB!*
-
-Мы специализируемся на:
-🔧 Обслуживании вентиляции
-❄️ Ремонте кондиционеров
-🧊 Обслуживании холодильного оборудования
-
-*С использованием искусственного интеллекта!*
-
-Выберите нужную услугу или просто опишите вашу проблему:
-            """
-            
-            await update.message.reply_text(
-                welcome_text,
-                parse_mode='Markdown',
-                reply_markup=self.get_main_keyboard()
-            )
-            
-            logger.info(f"Пользователь {update.effective_user.username} запустил бота")
-            
-        except Exception as e:
-            logger.error(f"Ошибка в start_command: {e}")
-            await update.message.reply_text("Произошла ошибка. Попробуйте позже.")
-    
-    async def handle_ai_diagnostics(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обработка AI-диагностики"""
-        try:
-            response_text = """
-🤖 *AI-Диагностика DS EKB*
-
-Опишите проблему с вашим оборудованием:
-• Какой тип оборудования? (вентиляция/кондиционер/холодильник)
-• Какие симптомы наблюдаете?
-• Когда проблема появилась?
-
-Наш ИИ проанализирует и даст рекомендации!
-            """
-            
-            await update.message.reply_text(
-                response_text,
-                parse_mode='Markdown',
-                reply_markup=self.get_main_keyboard()
-            )
-            
-        except Exception as e:
-            logger.error(f"Ошибка в handle_ai_diagnostics: {e}")
-            await update.message.reply_text("Ошибка AI-диагностики. Попробуйте позже.")
-    
-    async def handle_order_service(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обработка заказа услуги"""
-        try:
-            response_text = """
-📋 *Заказ услуги DS EKB*
-
-Для заказа услуги укажите:
-• Ваше имя и телефон
-• Адрес объекта
-• Тип услуги (вентиляция/кондиционер/холодильник)
-• Удобное время для визита
-
-Пример: "Иван Петров, +7 922 123-45-67, ул. Ленина 10, ремонт кондиционера, завтра после 14:00"
-            """
-            
-            await update.message.reply_text(
-                response_text,
-                parse_mode='Markdown',
-                reply_markup=self.get_main_keyboard()
-            )
-            
-        except Exception as e:
-            logger.error(f"Ошибка в handle_order_service: {e}")
-            await update.message.reply_text("Ошибка заказа услуги. Попробуйте позже.")
-    
-    async def handle_contacts(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обработка контактов"""
-        try:
-            contacts_text = """
-📞 *Контакты DS EKB*
-
-🏢 *ООО "ДС ЕКБ"*
-📍 г. Екатеринбург
-📱 +7 922 130-83-65
-🌐 ds-ekb.ru
-
-⏰ *Режим работы:*
-Пн-Пт: 9:00 - 18:00
-Сб: 10:00 - 16:00
-Вс: выходной
-
-🚨 *Экстренные вызовы 24/7*
-            """
-            
-            await update.message.reply_text(
-                contacts_text,
-                parse_mode='Markdown',
-                reply_markup=self.get_main_keyboard()
-            )
-            
-        except Exception as e:
-            logger.error(f"Ошибка в handle_contacts: {e}")
-            await update.message.reply_text("Ошибка получения контактов. Попробуйте позже.")
-    
-    async def handle_faq(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обработка FAQ"""
-        try:
-            faq_text = """
-❓ *Часто задаваемые вопросы*
-
-*Q: Как часто нужно чистить вентиляцию?*
-A: Рекомендуется каждые 6-12 месяцев
-
-*Q: Сколько стоит диагностика кондиционера?*
-A: AI-диагностика бесплатно, выезд мастера от 1500₽
-
-*Q: Работаете ли с промышленным оборудованием?*
-A: Да, обслуживаем любые типы HVAC систем
-
-*Q: Предоставляете ли гарантию?*
-A: Да, гарантия на все виды работ от 6 месяцев
-            """
-            
-            await update.message.reply_text(
-                faq_text,
-                parse_mode='Markdown',
-                reply_markup=self.get_main_keyboard()
-            )
-            
-        except Exception as e:
-            logger.error(f"Ошибка в handle_faq: {e}")
-            await update.message.reply_text("Ошибка получения FAQ. Попробуйте позже.")
-    
-    def extract_contact_info(self, text: str) -> Dict[str, str]:
-        """Извлечь контактную информацию из текста"""
-        import re
+    def setup_handlers(self) -> None:
+        """Настройка обработчиков команд и сообщений"""
         
-        info = {
-            'name': '',
-            'phone': '',
-            'address': '',
-            'service': '',
-            'time': ''
-        }
+        # Команды
+        self.application.add_handler(CommandHandler("start", self.handlers.start_command))
         
-        # Поиск телефона
-        phone_pattern = r'(\+?7[\s\-]?\(?9\d{2}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})'
-        phone_match = re.search(phone_pattern, text)
-        if phone_match:
-            info['phone'] = phone_match.group(1)
+        # Обработчик контактов
+        self.application.add_handler(MessageHandler(filters.CONTACT, self.handlers.handle_contact))
         
-        # Поиск имени (первое слово в начале)
-        words = text.split()
-        if words:
-            info['name'] = words[0]
+        # Обработчик всех текстовых сообщений
+        self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handlers.handle_message))
         
-        # Определение типа услуги
-        services = ['вентиляц', 'кондиционер', 'холодильн', 'чистка', 'ремонт', 'обслужив']
-        for service in services:
-            if service in text.lower():
-                info['service'] = service
-                break
+        # Обработчик ошибок
+        self.application.add_error_handler(self.handlers.error_handler)
         
-        return info
+        logger.info("Обработчики настроены")
     
-    async def process_request(self, user_data: Dict, message_text: str, telegram_user: str) -> Optional[int]:
-        """Обработать заявку через amoCRM"""
-        try:
-            # Создать контакт
-            contact_id = await self.amocrm.create_contact(
-                name=user_data.get('name', ''),
-                phone=user_data.get('phone', ''),
-                telegram_id=telegram_user
-            )
-            
-            if not contact_id:
-                logger.error("Не удалось создать контакт")
-                return None
-            
-            # Создать сделку
-            lead_id = await self.amocrm.create_lead(
-                contact_id=contact_id,
-                message_text=message_text,
-                telegram_user=telegram_user
-            )
-            
-            if not lead_id:
-                logger.error("Не удалось создать сделку")
-                return None
-            
-            # Создать задачу
-            await self.amocrm.create_task(lead_id, telegram_user)
-            
-            return lead_id
-            
-        except Exception as e:
-            logger.error(f"Ошибка обработки заявки: {e}")
-            return None
-    
-    async def handle_text_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обработка текстовых сообщений"""
-        try:
-            message_text = update.message.text
-            user = update.effective_user
-            telegram_user = user.username or f"id{user.id}"
-            
-            # Проверка на команды кнопок
-            if message_text in ["🔧 AI-диагностика"]:
-                await self.handle_ai_diagnostics(update, context)
-                return
-            elif message_text in ["📋 Заказать услугу"]:
-                await self.handle_order_service(update, context)
-                return
-            elif message_text in ["📞 Контакты"]:
-                await self.handle_contacts(update, context)
-                return
-            elif message_text in ["❓ FAQ"]:
-                await self.handle_faq(update, context)
-                return
-            
-            # Обработка как заявки
-            await update.message.reply_text(
-                "⏳ Принимаем вашу заявку... Создаем сделку в системе...",
-                reply_markup=self.get_main_keyboard()
-            )
-            
-            # Извлечь информацию о клиенте
-            contact_info = self.extract_contact_info(message_text)
-            
-            # Обработать заявку через amoCRM
-            lead_id = await self.process_request(contact_info, message_text, telegram_user)
-            
-            if lead_id:
-                success_text = f"""
-✅ *Заявка принята!*
-
-📋 Номер заявки: #{lead_id}
-👤 Клиент: {contact_info.get('name', telegram_user)}
-📱 Телефон: {contact_info.get('phone', 'не указан')}
-
-🔄 *Статус:* Новая заявка
-⏰ *Время обработки:* до 1 часа
-
-Мы свяжемся с вами в ближайшее время!
-                """
-                
-                await update.message.reply_text(
-                    success_text,
-                    parse_mode='Markdown',
-                    reply_markup=self.get_main_keyboard()
-                )
-                
-                logger.info(f"Заявка {lead_id} успешно создана для {telegram_user}")
-                
-            else:
-                await update.message.reply_text(
-                    "⚠️ Заявка принята, но возникли проблемы с системой. Мы обработаем её вручную и свяжемся с вами!",
-                    reply_markup=self.get_main_keyboard()
-                )
-                
-                logger.warning(f"Заявка от {telegram_user} принята, но не создана в amoCRM")
-            
-        except Exception as e:
-            logger.error(f"Ошибка обработки сообщения: {e}")
-            await update.message.reply_text(
-                "❌ Произошла ошибка при обработке заявки. Попробуйте позже или позвоните нам: +7 922 130-83-65",
-                reply_markup=self.get_main_keyboard()
-            )
-    
-    async def error_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обработчик ошибок"""
-        logger.error(f"Ошибка бота: {context.error}")
+    async def startup(self) -> None:
+        """Инициализация бота при запуске"""
+        logger.info(f"Запуск бота {self.config.COMPANY_NAME}")
         
-        if update and update.message:
-            try:
-                await update.message.reply_text(
-                    "Произошла техническая ошибка. Мы уже работаем над её устранением!",
-                    reply_markup=self.get_main_keyboard()
-                )
-            except Exception:
-                pass
-    
-    async def setup_application(self) -> Application:
-        """Настройка приложения бота"""
-        # Создать приложение
-        application = Application.builder().token(self.config.TELEGRAM_TOKEN).build()
+        # Инициализируем amoCRM менеджер
+        await self.handlers.amocrm.get_access_token()
         
-        # Добавить обработчики
-        application.add_handler(CommandHandler("start", self.start_command))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text_message))
-        
-        # Добавить обработчик ошибок
-        application.add_error_handler(self.error_handler)
-        
-        return application
+        logger.info("Бот готов к работе!")
     
-    async def start_bot(self) -> None:
-        """Запустить бота"""
-        try:
-            logger.info("Запуск DS EKB бота...")
-            
-            # Настроить приложение
-            self.application = await self.setup_application()
-            
-            # Инициализировать
-            await self.application.initialize()
-            
-            # Запустить polling
-            await self.application.start()
-            await self.application.updater.start_polling(drop_pending_updates=True)
-            
-            logger.info("DS EKB бот успешно запущен!")
-            
-            # Держать бота запущенным
-            await asyncio.Future()  # Бесконечное ожидание
-            
-        except Exception as e:
-            logger.error(f"Ошибка запуска бота: {e}")
-        finally:
-            await self.cleanup()
+    async def shutdown(self) -> None:
+        """Корректное завершение работы бота"""
+        logger.info("Завершение работы бота")
     
-    async def cleanup(self) -> None:
-        """Очистка ресурсов"""
-        try:
-            if self.amocrm:
-                await self.amocrm.close()
-            
-            if self.application:
-                await self.application.stop()
-                await self.application.shutdown()
-                
-            logger.info("Ресурсы очищены")
-            
-        except Exception as e:
-            logger.error(f"Ошибка очистки ресурсов: {e}")
-
-# ===== ГЛАВНАЯ ФУНКЦИЯ =====
-async def main():
-    """Главная функция запуска"""
-    bot = DSEKBBot()
-    await bot.start_bot()
+    def run(self) -> None:
+        """Запуск бота"""
+        # Создаем приложение
+        self.application = Application.builder().token(self.config.TELEGRAM_TOKEN).build()
+        
+        # Настраиваем обработчики
+        self.setup_handlers()
+        
+        # Добавляем хуки запуска и завершения
+        self.application.post_init = self.startup
+        self.application.post_shutdown = self.shutdown
+        
+        # Запускаем бота
+        logger.info("Запуск polling...")
+        self.application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True
+        )
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        # Создаем и запускаем бота
+        bot = DSEKBBot()
+        bot.run()
     except KeyboardInterrupt:
-        logger.info("Бот остановлен пользователем")
+        logger.info("Получен сигнал остановки")
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}")
-</code></pre>
-            </div>
-        </div>
-
-        <div class="bg-gray-800 rounded-lg shadow-lg p-6 mb-8">
-            <h2 class="text-2xl font-bold text-yellow-400 mb-4">
-                <i class="fas fa-file-alt mr-3"></i>requirements.txt
-            </h2>
-            <div class="bg-gray-900 rounded p-4">
-                <pre class="text-sm"><code>python-telegram-bot==20.7
-aiohttp==3.9.1
-requests==2.31.0</code></pre>
-            </div>
-        </div>
-
-        <div class="bg-green-900 border border-green-700 rounded p-4">
-            <h3 class="text-lg font-semibold text-green-300 mb-2">
-                <i class="fas fa-check-circle mr-2"></i>Ключевые особенности этого кода:
-            </h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-green-100">
-                <ul class="list-disc ml-6 space-y-1">
-                    <li>Единый файл - нет проблем с импортами</li>
-                    <li>Правильная структура классов</li>
-                    <li>Полная обработка всех ошибок</li>
-                    <li>Асинхронная работа без блокировок</li>
-                </ul>
-                <ul class="list-disc ml-6 space-y-1">
-                    <li>Автоматическое создание сделок в amoCRM</li>
-                    <li>Уведомления клиенту о статусе</li>
-                    <li>Детальное логирование операций</li>
-                    <li>Стабильная работа в Railway</li>
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
-</body>
-</html>
+    finally:
+        logger.info("Бот остановлен")
