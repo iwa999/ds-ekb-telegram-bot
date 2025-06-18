@@ -1,0 +1,21 @@
+# Telegram Bot библиотеки
+python-telegram-bot==20.7
+
+# HTTP клиенты для API
+requests==2.31.0
+aiohttp==3.9.1
+
+# Асинхронные библиотеки
+asyncio==3.4.3
+
+# Логирование и утилиты
+python-dotenv==1.0.0
+
+# Для работы с JSON и датами
+python-dateutil==2.8.2
+
+# Для обработки ошибок и ретраев
+tenacity==8.2.3
+
+# Дополнительные зависимости
+typing-extensions==4.8.0
