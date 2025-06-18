@@ -1,33 +1,48 @@
-# main.py - Entry point for the bot
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
-from handlers import handle_start, handle_ai_diagnosis, handle_order_service, handle_contacts, handle_faq, collect_name, collect_phone, collect_equipment_type, collect_photo, cancel
-from config import TOKEN
+# main.py - Исправленная версия для python-telegram-bot 20.7
+import os
+import logging
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler
+
+# Импорт наших модулей
+from handlers import start, help_command, contacts, faq, ai_diagnostics, collect_name, collect_phone, collect_equipment_type, collect_photo, cancel
 from states import BotStates
+from config import TOKEN
 
-async def start_bot():
-    application = ApplicationBuilder().token(TOKEN).build()
+# Настройка логирования
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-    # Conversation handler for collecting client data
+def main():
+    """Запуск бота"""
+    # Создание приложения
+    application = Application.builder().token(TOKEN).build()
+    
+    # Обработчик диалога для сбора данных
     conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex('^(AI-диагностика|Заказать услугу)$'), handle_ai_diagnosis)],
+        entry_points=[MessageHandler(filters.Regex("^🔧 AI-диагностика$"), ai_diagnostics)],
         states={
             BotStates.NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_name)],
             BotStates.PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_phone)],
             BotStates.EQUIPMENT_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, collect_equipment_type)],
-            BotStates.PHOTO: [MessageHandler(filters.PHOTO, collect_photo)],
+            BotStates.PHOTO: [MessageHandler(filters.PHOTO, collect_photo), MessageHandler(filters.Regex("^Пропустить$"), collect_photo)],
         },
-        fallbacks=[CommandHandler('cancel', cancel)],
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
-
-    # Add handlers
-    application.add_handler(CommandHandler("start", handle_start))
-    application.add_handler(CommandHandler("contacts", handle_contacts))
-    application.add_handler(CommandHandler("faq", handle_faq))
+    
+    # Добавление обработчиков
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(MessageHandler(filters.Regex("^📞 Контакты$"), contacts))
+    application.add_handler(MessageHandler(filters.Regex("^❓ FAQ$"), faq))
     application.add_handler(conv_handler)
-
-    await application.run_polling()
+    
+    # Запуск бота
+    logger.info("Бот ДС-ЕКБ запущен!")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
-    import asyncio
-    asyncio.run(start_bot())
+    main()
