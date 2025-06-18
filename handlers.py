@@ -1,298 +1,149 @@
-# handlers.py - Исправленная версия для python-telegram-bot 20.7
-import logging
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes, ConversationHandler
-from states import BotStates
-from bot_logic import process_data
+from amocrm_integration import amocrm
+import logging
 
-# Настройка логирования
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+# Состояния диалога
+COLLECT_NAME, COLLECT_PHONE, COLLECT_DESCRIPTION = range(3)
 
-# === КОМАНДА START ===
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработчик команды /start"""
-    user = update.effective_user
-    
-    # Создаем клавиатуру с основными кнопками
     keyboard = [
         [KeyboardButton("🔧 AI-диагностика"), KeyboardButton("📋 Заказать услугу")],
         [KeyboardButton("📞 Контакты"), KeyboardButton("❓ FAQ")]
     ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=False)
-    
-    welcome_text = f"""
-🏢 Добро пожаловать в ДС-ЕКБ!
-
-Привет, {user.first_name}! 👋
-
-Мы специализируемся на:
-• Обслуживании вентиляции
-• Ремонте кондиционеров  
-• Промышленном холодильном оборудовании
-
-Выберите нужную услугу из меню ⬇️
-    """
-    
-    await update.message.reply_text(
-        welcome_text,
-        reply_markup=reply_markup,
-        parse_mode='HTML'
-    )
-    
-    return ConversationHandler.END
-
-# === ОБРАБОТЧИК AI-ДИАГНОСТИКИ ===
-async def ai_diagnostics(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Обработчик кнопки AI-диагностика"""
-    logger.info(f"AI-диагностика запрошена пользователем {update.effective_user.first_name}")
-    
-    # Создаем клавиатуру для выбора типа оборудования
-    keyboard = [
-        [KeyboardButton("❄️ Кондиционер"), KeyboardButton("🌪️ Вентиляция")],
-        [KeyboardButton("🧊 Холодильное оборудование")],
-        [KeyboardButton("🔙 Назад в меню")]
-    ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
-    text = """
-🤖 AI-диагностика оборудования
+    await update.message.reply_text(
+        "🏢 Добро пожаловать в ДС ЕКБ!\n\n"
+        "Мы предоставляем услуги по:\n"
+        "• Обслуживанию вентиляции\n"
+        "• Ремонту кондиционеров\n"
+        "• Холодильному оборудованию\n\n"
+        "Выберите интересующую услугу:",
+        reply_markup=reply_markup
+    )
 
-Искусственный интеллект поможет определить проблему и рассчитать стоимость ремонта.
-
-Выберите тип оборудования:
-    """
+async def ai_diagnostics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик AI-диагностики"""
+    context.user_data['service_type'] = 'AI-диагностика'
     
     await update.message.reply_text(
-        text,
-        reply_markup=reply_markup,
-        parse_mode='HTML'
+        "🤖 AI-диагностика оборудования\n\n"
+        "Для точной диагностики мне нужны ваши данные.\n"
+        "Как к вам обращаться?"
     )
-    
-    return BotStates.EQUIPMENT_TYPE
+    return COLLECT_NAME
 
-# === ОБРАБОТЧИК ЗАКАЗА УСЛУГИ ===
-async def order_service(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Обработчик кнопки Заказать услугу"""
-    logger.info(f"Заказ услуги запрошен пользователем {update.effective_user.first_name}")
+async def order_service(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик заказа услуги"""
+    context.user_data['service_type'] = 'Заказ услуги'
     
-    text = """
-📋 Заказ услуги
+    await update.message.reply_text(
+        "📋 Заказ услуги\n\n"
+        "Отлично! Оформим заявку на обслуживание.\n"
+        "Как к вам обращаться?"
+    )
+    return COLLECT_NAME
 
-Для оформления заявки нам нужно узнать о вас немного информации.
-
-Как вас зовут?
-Напишите ваше имя:
-    """
-    
-    await update.message.reply_text(text, parse_mode='HTML')
-    return BotStates.NAME
-
-# === ОБРАБОТЧИК ТИПА ОБОРУДОВАНИЯ ===
-async def equipment_type_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Обработчик выбора типа оборудования"""
-    equipment_type = update.message.text
-    
-    if equipment_type == "🔙 Назад в меню":
-        return await start(update, context)
-    
-    # Сохраняем тип оборудования
-    context.user_data['equipment_type'] = equipment_type
-    
-    text = f"""
-✅ Выбрано: {equipment_type}
-
-📸 Пришлите фото оборудования
-Это поможет AI точнее определить проблему.
-
-Если фото нет, напишите "нет фото"
-    """
-    
-    await update.message.reply_text(text, parse_mode='HTML')
-    return BotStates.PHOTO
-
-# === СБОР ИМЕНИ ===
-async def collect_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def collect_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сбор имени пользователя"""
     name = update.message.text
     context.user_data['name'] = name
     
-    text = f"""
-👋 Приятно познакомиться, {name}!
+    await update.message.reply_text(
+        f"Приятно познакомиться, {name}!\n\n"
+        "Теперь укажите ваш номер телефона для связи:"
+    )
+    return COLLECT_PHONE
 
-📱 Укажите номер телефона
-Наш мастер свяжется с вами для уточнения деталей.
-
-Пример: +7 922 123-45-67
-    """
-    
-    await update.message.reply_text(text, parse_mode='HTML')
-    return BotStates.PHONE
-
-# === СБОР ТЕЛЕФОНА ===
-async def collect_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Сбор номера телефона"""
+async def collect_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сбор телефона пользователя"""
     phone = update.message.text
     context.user_data['phone'] = phone
     
-    # Создаем клавиатуру для выбора типа оборудования
-    keyboard = [
-        [KeyboardButton("❄️ Кондиционер"), KeyboardButton("🌪️ Вентиляция")],
-        [KeyboardButton("🧊 Холодильное оборудование")]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    text = """
-📋 Выберите тип оборудования
-Какое оборудование требует обслуживания?
-    """
-    
     await update.message.reply_text(
-        text,
-        reply_markup=reply_markup,
-        parse_mode='HTML'
+        "📝 Опишите проблему с оборудованием или укажите "
+        "какая услуга вам нужна (тип оборудования, симптомы и т.д.):"
     )
-    return BotStates.EQUIPMENT_TYPE
+    return COLLECT_DESCRIPTION
 
-# === ОБРАБОТКА ФОТО ===
-async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Обработка загруженного фото или текста"""
+async def collect_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сбор описания проблемы и отправка в amoCRM"""
+    description = update.message.text
     
-    if update.message.photo:
-        # Получаем фото
-        photo_file = await update.message.photo[-1].get_file()
-        context.user_data['photo'] = photo_file.file_path
-        logger.info(f"Получено фото от {update.effective_user.first_name}")
-        
-        response_text = "📸 Фото получено! Анализирую..."
-    else:
-        # Получаем текст
-        text = update.message.text
-        context.user_data['photo'] = text
-        response_text = "📝 Информация принята! Обрабатываю..."
+    # Подготавливаем данные для amoCRM
+    user_data = {
+        'name': context.user_data.get('name'),
+        'phone': context.user_data.get('phone'),
+        'telegram_id': update.effective_user.username or str(update.effective_user.id),
+        'service_type': context.user_data.get('service_type'),
+        'description': description
+    }
     
-    await update.message.reply_text(response_text)
+    await update.message.reply_text("⏳ Обрабатываю заявку...")
     
-    # Обрабатываем данные
-    result = await process_data(context.user_data)
+    # Отправляем в amoCRM
+    success = amocrm.process_telegram_request(user_data)
     
-    # Возвращаем на главное меню
-    keyboard = [
-        [KeyboardButton("🔧 AI-диагностика"), KeyboardButton("📋 Заказать услугу")],
-        [KeyboardButton("📞 Контакты"), KeyboardButton("❓ FAQ")]
-    ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    
-    final_text = f"""
-✅ Диагностика завершена!
-
-{result}
-
-🎯 Что дальше?
-Наш мастер свяжется с вами в ближайшее время для уточнения деталей и согласования времени визита.
-
-Выберите другую услугу или вернитесь в главное меню ⬇️
-    """
-    
-    await update.message.reply_text(
-        final_text,
-        reply_markup=reply_markup,
-        parse_mode='HTML'
-    )
-    
-    return ConversationHandler.END
-
-# === КОНТАКТЫ ===
-async def contacts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Обработчик кнопки Контакты"""
-    text = """
-📞 Наши контакты
-
-🏢 ООО "ДС-ЕКБ"
-📍 г. Екатеринбург
-
-📱 Телефон: +7 922 130-83-65
-⏰ Режим работы: 24/7
-
-💬 Telegram: @ds_ekb_hvac
-📧 VK: vk.ru/ds_ekb
-
-Работаем по всему Екатеринбургу и области!
-    """
-    
-    await update.message.reply_text(text, parse_mode='HTML')
-    return ConversationHandler.END
-
-# === FAQ ===
-async def faq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Обработчик кнопки FAQ"""
-    text = """
-❓ Часто задаваемые вопросы
-
-🕐 Как быстро приедет мастер?
-В течение 2-4 часов в рабочее время, экстренный выезд - в течение часа.
-
-💰 Сколько стоит диагностика?
-Диагностика БЕСПЛАТНО при заказе ремонта!
-
-🔧 Какие гарантии на работы?
-Гарантия на все виды работ от 6 месяцев до 2 лет.
-
-💳 Как можно оплатить?
-Наличными, картой, безналичный расчет.
-
-🏠 Выезжаете ли на дом?
-Да, работаем по всему Екатеринбургу и области.
-
-📱 Есть ли экстренная служба?
-Да, круглосуточно по телефону +7 922 130-83-65
-    """
-    
-    await update.message.reply_text(text, parse_mode='HTML')
-    return ConversationHandler.END
-
-# === ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ ===
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Обработчик всех текстовых сообщений"""
-    text = update.message.text
-    
-    # Маршрутизация по тексту кнопок
-    if text == "🔧 AI-диагностика":
-        return await ai_diagnostics(update, context)
-    elif text == "📋 Заказать услугу":
-        return await order_service(update, context)
-    elif text == "📞 Контакты":
-        return await contacts(update, context)
-    elif text == "❓ FAQ":
-        return await faq(update, context)
-    elif text in ["❄️ Кондиционер", "🌪️ Вентиляция", "🧊 Холодильное оборудование"]:
-        return await equipment_type_handler(update, context)
-    else:
-        # Неизвестная команда
+    if success:
         await update.message.reply_text(
-            "🤔 Не понимаю эту команду. Используйте кнопки меню ⬇️"
+            "✅ Заявка успешно принята!\n\n"
+            "📋 Ваша заявка автоматически создана в нашей CRM-системе\n"
+            "📞 Менеджер свяжется с вами в ближайшее время\n"
+            "📱 Следить за статусом можно в нашем канале: @ds_ekb_hvac\n\n"
+            "Спасибо за обращение в ДС ЕКБ!"
         )
-        return ConversationHandler.END
+        
+        # Логируем успешную заявку
+        logging.info(f"Заявка создана: {user_data}")
+        
+    else:
+        await update.message.reply_text(
+            "❌ Произошла ошибка при создании заявки.\n\n"
+            "Попробуйте еще раз или свяжитесь с нами напрямую:\n"
+            "📞 +7 922 130-83-65"
+        )
+    
+    # Очищаем данные пользователя
+    context.user_data.clear()
+    
+    return ConversationHandler.END
 
-# === ОТМЕНА РАЗГОВОРА ===
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Отмена текущего разговора"""
+async def contacts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик контактов"""
     await update.message.reply_text(
-        '❌ Операция отменена. Возвращаюсь в главное меню.',
-        reply_markup=ReplyKeyboardRemove()
+        "📞 Наши контакты:\n\n"
+        "🏢 ДС ЕКБ - HVAC услуги\n"
+        "📱 Телефон: +7 922 130-83-65\n"
+        "🌐 Сайт: ds-ekb.ru\n"
+        "📧 Telegram: @dsekb_assistant_bot\n"
+        "📍 г. Екатеринбург\n\n"
+        "🕒 Работаем 24/7\n"
+        "⚡ Экстренный выезд в течение 2 часов"
     )
-    
-    return await start(update, context)
 
-# === ОБРАБОТКА ОШИБОК ===
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик ошибок"""
-    logger.error(f"Ошибка: {context.error}")
-    
-    if update and update.effective_message:
-        await update.effective_message.reply_text(
-            "😵 Произошла ошибка. Попробуйте еще раз или обратитесь в поддержку."
-        )
+async def faq(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик FAQ"""
+    await update.message.reply_text(
+        "❓ Часто задаваемые вопросы:\n\n"
+        "🔧 Какие услуги вы предоставляете?\n"
+        "• Чистка и обслуживание вентиляции\n"
+        "• Ремонт кондиционеров и сплит-систем\n"
+        "• Обслуживание холодильного оборудования\n\n"
+        "💰 Сколько стоят услуги?\n"
+        "• Диагностика - бесплатно\n"
+        "• Чистка вентиляции - от 3500₽\n"
+        "• Ремонт кондиционеров - от 1500₽\n\n"
+        "⏰ Как быстро приедете?\n"
+        "• Плановые работы - в течение дня\n"
+        "• Экстренный выезд - в течение 2 часов\n\n"
+        "🤖 Что такое AI-диагностика?\n"
+        "ИИ анализирует симптомы и определяет неисправность за 2 минуты!"
+    )
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отмена диалога"""
+    await update.message.reply_text("Операция отменена. Напишите /start для начала.")
+    context.user_data.clear()
+    return ConversationHandler.END
