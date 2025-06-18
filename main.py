@@ -1,8 +1,15 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+DS-EKB Telegram Bot с интеграцией amoCRM
+Автоматическое создание сделок из заявок в Telegram
+"""
+
 import os
 import logging
-import asyncio
-import aiohttp
 import json
+import requests
+from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -13,270 +20,332 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Получаем токены из переменных окружения
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
-AMOCRM_CLIENT_ID = os.getenv('AMOCRM_CLIENT_ID')
-AMOCRM_CLIENT_SECRET = os.getenv('AMOCRM_CLIENT_SECRET')
+# Конфигурация
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', '7437623986:AAFj-sItRC4s889Sop2mglRE7SE2c-drTCY')
 
-# Глобальная переменная для хранения access_token
-access_token = None
-amocrm_subdomain = None
+# amoCRM настройки с вашими данными
+AMOCRM_SUBDOMAIN = "ekbamodseru"
+AMOCRM_ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsImp0aSI6ImVjN2RmYjU4ZGNiNTllZWUwM2MwZmNkYTYxMTE3NzQwNGViNTAzNjQ1NGRhYmZmZTAxNzVkYzMzMjBmMzFjMGJjNzRlZGI0ZmM2MTBhOTkwIn0.eyJhdWQiOiJjNDhlMWUwOS04NTVhLTQ3YzItOGQ3Yy0yY2EzM2UxNjhiMWMiLCJqdGkiOiJlYzdkZmI1OGRjYjU5ZWVlMDNjMGZjZGE2MTExNzc0MDRlYjUwMzY0NTRkYWJmZmUwMTc1ZGMzMzIwZjMxYzBiYzc0ZWRiNGZjNjEwYTk5MCIsImlhdCI6MTc1MDI1OTc1MSwibmJmIjoxNzUwMjU5NzUxLCJleHAiOjE4MTMyNzY4MDAsInN1YiI6IjEyNjQwMzA2IiwiZ3JhbnRfdHlwZSI6IiIsImFjY291bnRfaWQiOjMyNDk0NTU4LCJiYXNlX2RvbWFpbiI6ImFtb2NybS5ydSIsInZlcnNpb24iOjIsInNjb3BlcyI6WyJjcm0iLCJmaWxlcyIsImZpbGVzX2RlbGV0ZSIsIm5vdGlmaWNhdGlvbnMiLCJwdXNoX25vdGlmaWNhdGlvbnMiXSwiaGFzaF91dWlkIjoiNDRlMzU2YzktYmRjZS00MTA5LWEwNzktN2Q0OWEyNjk4ZjY4IiwiYXBpX2RvbWFpbiI6ImFwaS1iLmFtb2NybS5ydSJ9.EWF58KvQGEBVICVJ4cFu--0FH7KNaXocvTKIkAN-Zdb07wbfWk1ybNvCT3zOhFSfAsNnh-i8ji9k7mmclN9lUtqK6ouTep-Qmxo0c03OOZfzcxJu7LhJ5DsnxdHdNpQkYc4QKEIsI7I9F-Kv0fXInnM1iA9lqJU3FUcfMhQvsXIYZQBJvjki9xZ86UhV_QksVeCkiZUOwql0kCgJOtyGGK5LsHW3_qh0zBE5YL00422UzM9cpgPh_y4Lw08WGMUygTPtTh-A0G0FICFmtANsFqZfu43PXb3sOwZ8XZ7T2b2rCaShrUh98OwheR0wMFqwD2iAHIWQJ-q8B3X6N0PWvg"
 
-async def get_amocrm_token():
-    """Получение access_token для amoCRM"""
-    global access_token, amocrm_subdomain
-    
-    if not AMOCRM_CLIENT_ID or not AMOCRM_CLIENT_SECRET:
-        logger.error("Не заданы переменные amoCRM")
-        return None
-    
-    # Здесь должен быть ваш поддомен amoCRM
-    amocrm_subdomain = "dsekb"  # Замените на ваш поддомен
-    
-    # Для упрощения используем долгосрочный токен
-    # В реальном проекте здесь была бы полная OAuth авторизация
-    logger.info("amoCRM токен настроен")
-    access_token = "долгосрочный_токен"  # Здесь будет ваш долгосрочный токен
-    return access_token
+# API endpoints
+AMOCRM_API_URL = f"https://{AMOCRM_SUBDOMAIN}.amocrm.ru/api/v4"
 
-async def create_amocrm_contact(name, phone, telegram_id):
-    """Создание контакта в amoCRM"""
-    global access_token, amocrm_subdomain
+class AmoCRMAPI:
+    """Класс для работы с amoCRM API"""
     
-    if not access_token:
-        await get_amocrm_token()
+    def __init__(self):
+        self.headers = {
+            'Authorization': f'Bearer {AMOCRM_ACCESS_TOKEN}',
+            'Content-Type': 'application/json'
+        }
     
-    contact_data = {
-        "name": name,
-        "custom_fields_values": [
-            {
-                "field_id": 264911,  # ID поля телефона (стандартное)
-                "values": [{"value": phone, "enum_code": "WORK"}]
-            }
-        ],
-        "custom_fields_values": [
-            {
-                "field_id": 264913,  # ID поля email (стандартное) 
-                "values": [{"value": f"telegram_{telegram_id}@dsekb.local"}]
-            }
-        ]
-    }
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            headers = {
-                'Authorization': f'Bearer {access_token}',
-                'Content-Type': 'application/json'
+    def create_contact(self, name, phone, telegram_id):
+        """Создание контакта в amoCRM"""
+        try:
+            url = f"{AMOCRM_API_URL}/contacts"
+            
+            data = {
+                "name": name,
+                "custom_fields_values": [
+                    {
+                        "field_code": "PHONE",
+                        "values": [
+                            {
+                                "value": phone,
+                                "enum_code": "WORK"
+                            }
+                        ]
+                    }
+                ]
             }
             
-            url = f'https://{amocrm_subdomain}.amocrm.ru/api/v4/contacts'
+            response = requests.post(url, headers=self.headers, json=[data])
             
-            async with session.post(url, json=[contact_data], headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    logger.info(f"Контакт создан: {result}")
-                    return result['_embedded']['contacts'][0]['id']
-                else:
-                    logger.error(f"Ошибка создания контакта: {response.status}")
-                    return None
-    except Exception as e:
-        logger.error(f"Ошибка при создании контакта: {e}")
-        return None
+            if response.status_code == 200:
+                contact_data = response.json()
+                contact_id = contact_data['_embedded']['contacts'][0]['id']
+                logger.info(f"Контакт создан: {contact_id}")
+                return contact_id
+            else:
+                logger.error(f"Ошибка создания контакта: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Ошибка при создании контакта: {e}")
+            return None
+    
+    def create_lead(self, name, contact_id, service_type, description=""):
+        """Создание сделки в amoCRM"""
+        try:
+            url = f"{AMOCRM_API_URL}/leads"
+            
+            # Определяем цену в зависимости от типа услуги
+            price_map = {
+                "вентиляция": 3500,
+                "кондиционер": 1500,
+                "холодильное": 5000
+            }
+            
+            price = 0
+            for key, value in price_map.items():
+                if key in service_type.lower():
+                    price = value
+                    break
+            
+            data = {
+                "name": f"HVAC заявка: {name}",
+                "price": price,
+                "contacts": [
+                    {
+                        "id": contact_id
+                    }
+                ],
+                "custom_fields_values": [
+                    {
+                        "field_code": "STATUS_ID",
+                        "values": [
+                            {
+                                "value": "Новая заявка"
+                            }
+                        ]
+                    }
+                ]
+            }
+            
+            if description:
+                data["custom_fields_values"].append({
+                    "field_code": "COMMENTS",
+                    "values": [
+                        {
+                            "value": f"Тип услуги: {service_type}\nОписание: {description}\nИсточник: Telegram Bot"
+                        }
+                    ]
+                })
+            
+            response = requests.post(url, headers=self.headers, json=[data])
+            
+            if response.status_code == 200:
+                lead_data = response.json()
+                lead_id = lead_data['_embedded']['leads'][0]['id']
+                logger.info(f"Сделка создана: {lead_id}")
+                return lead_id
+            else:
+                logger.error(f"Ошибка создания сделки: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Ошибка при создании сделки: {e}")
+            return None
+    
+    def create_task(self, lead_id, text="Связаться с клиентом"):
+        """Создание задачи в amoCRM"""
+        try:
+            url = f"{AMOCRM_API_URL}/tasks"
+            
+            # Задача на завтра в 10:00
+            tomorrow = datetime.now().timestamp() + 86400
+            
+            data = {
+                "text": text,
+                "complete_till": int(tomorrow),
+                "entity_id": lead_id,
+                "entity_type": "leads"
+            }
+            
+            response = requests.post(url, headers=self.headers, json=[data])
+            
+            if response.status_code == 200:
+                task_data = response.json()
+                task_id = task_data['_embedded']['tasks'][0]['id']
+                logger.info(f"Задача создана: {task_id}")
+                return task_id
+            else:
+                logger.error(f"Ошибка создания задачи: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Ошибка при создании задачи: {e}")
+            return None
 
-async def create_amocrm_lead(contact_id, service_type, description, telegram_username):
-    """Создание сделки в amoCRM"""
-    global access_token, amocrm_subdomain
-    
-    lead_data = {
-        "name": f"HVAC заявка - {service_type}",
-        "price": 5000,  # Базовая цена
-        "pipeline_id": 1,  # ID воронки (обычно 1 - основная)
-        "status_id": 142,  # ID статуса "Новая заявка"
-        "_embedded": {
-            "contacts": [{"id": contact_id}]
-        },
-        "custom_fields_values": [
-            {
-                "field_id": 123456,  # ID кастомного поля для описания
-                "values": [{"value": description}]
-            }
-        ]
-    }
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            headers = {
-                'Authorization': f'Bearer {access_token}',
-                'Content-Type': 'application/json'
-            }
-            
-            url = f'https://{amocrm_subdomain}.amocrm.ru/api/v4/leads'
-            
-            async with session.post(url, json=[lead_data], headers=headers) as response:
-                if response.status == 200:
-                    result = await response.json()
-                    logger.info(f"Сделка создана: {result}")
-                    return result['_embedded']['leads'][0]['id']
-                else:
-                    logger.error(f"Ошибка создания сделки: {response.status}")
-                    return None
-    except Exception as e:
-        logger.error(f"Ошибка при создании сделки: {e}")
-        return None
+# Инициализация amoCRM API
+amocrm = AmoCRMAPI()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
+    """Команда /start"""
     keyboard = [
         [KeyboardButton("🔧 AI-диагностика"), KeyboardButton("📋 Заказать услугу")],
         [KeyboardButton("📞 Контакты"), KeyboardButton("❓ FAQ")]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     
-    await update.message.reply_text(
-        "👋 Добро пожаловать в DS EKB!\n\n"
-        "Мы предоставляем услуги по обслуживанию:\n"
-        "🌪️ Вентиляции\n"
-        "❄️ Кондиционеров\n"
-        "🧊 Холодильного оборудования\n\n"
-        "Выберите нужную опцию:",
-        reply_markup=reply_markup
-    )
+    welcome_text = """
+🏢 Добро пожаловать в DS EKB!
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик текстовых сообщений"""
+Мы специализируемся на:
+• Обслуживании вентиляции
+• Ремонте кондиционеров  
+• Холодильном оборудовании
+
+🤖 Выберите нужную опцию в меню ниже
+    """
+    
+    await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+
+async def handle_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка нажатий на кнопки"""
     text = update.message.text
-    user = update.effective_user
     
     if text == "🔧 AI-диагностика":
         await update.message.reply_text(
-            "🤖 AI-диагностика оборудования\n\n"
+            "🔍 AI-диагностика оборудования\n\n"
             "Опишите проблему в одном сообщении:\n"
-            "• Тип оборудования\n"
-            "• Симптомы неисправности\n"
-            "• Ваши контакты (имя, телефон)\n"
-            "• Адрес объекта\n\n"
-            "Пример: 'Кондиционер не охлаждает, течет вода. Иван Петров, +7-912-345-67-89, ул. Ленина 10'"
+            "• Ваше имя\n"
+            "• Телефон для связи\n" 
+            "• Тип оборудования (вентиляция/кондиционер/холодильное)\n"
+            "• Описание проблемы\n\n"
+            "Пример:\n"
+            "Иван Петров\n"
+            "+7 922 123-45-67\n"
+            "Кондиционер\n"
+            "Не охлаждает, странный звук"
         )
-        context.user_data['waiting_for'] = 'diagnostics'
         
     elif text == "📋 Заказать услугу":
         await update.message.reply_text(
             "📋 Заказ услуги\n\n"
-            "Опишите что нужно сделать:\n"
-            "• Тип услуги (ремонт/обслуживание/чистка)\n"
-            "• Тип оборудования\n"
-            "• Ваши контакты (имя, телефон)\n"
-            "• Адрес объекта\n"
+            "Укажите в одном сообщении:\n"
+            "• Ваше имя\n"
+            "• Телефон для связи\n"
+            "• Адрес\n" 
+            "• Тип услуги\n"
             "• Желаемое время\n\n"
-            "Пример: 'Чистка вентиляции в офисе. Мария Сидорова, +7-912-555-77-88, ул. Мира 5, завтра утром'"
+            "Пример:\n"
+            "Мария Сидорова\n"
+            "+7 922 123-45-67\n"
+            "ул. Ленина, 15\n"
+            "Чистка вентиляции\n"
+            "Завтра после 14:00"
         )
-        context.user_data['waiting_for'] = 'order'
         
     elif text == "📞 Контакты":
         await update.message.reply_text(
             "📞 Наши контакты:\n\n"
-            "☎️ Телефон: +7 922 130-83-65\n"
+            "🏢 ООО «ДС ЕКБ»\n"
+            "📱 Телефон: +7 922 130-83-65\n"
             "🌐 Сайт: ds-ekb.ru\n"
-            "📍 Адрес: г. Екатеринбург\n"
-            "🕐 Режим работы: 24/7\n\n"
-            "📱 Telegram: @ds_ekb_hvac\n"
-            "📘 ВКонтакте: vk.ru/ds_ekb"
+            "📍 Екатеринбург\n\n"
+            "⏰ Режим работы:\n"
+            "Пн-Пт: 9:00-18:00\n"
+            "Сб: 10:00-16:00\n"
+            "Вс: выходной\n\n"
+            "🚨 Аварийные вызовы: 24/7"
         )
         
     elif text == "❓ FAQ":
         await update.message.reply_text(
             "❓ Часто задаваемые вопросы:\n\n"
-            "🔹 Сколько стоит диагностика?\n"
-            "→ AI-диагностика бесплатно!\n\n"
-            "🔹 Как быстро приедете?\n"
-            "→ В течение 2 часов по городу\n\n"
-            "🔹 Работаете ли в выходные?\n"
-            "→ Да, работаем 24/7\n\n"
-            "🔹 Гарантия на работы?\n"
-            "→ До 2 лет на все виды работ"
+            "🔧 Какие услуги вы предоставляете?\n"
+            "Обслуживание вентиляции, ремонт кондиционеров, холодильное оборудование\n\n"
+            "💰 Сколько стоят услуги?\n"
+            "Вентиляция: от 3,500₽\n"
+            "Кондиционеры: от 1,500₽\n"
+            "Холодильное: от 5,000₽\n\n"
+            "⏱️ Как быстро приедете?\n"
+            "Плановые работы: в течение дня\n"
+            "Аварийные: в течение 2 часов\n\n"
+            "🛡️ Даете ли гарантию?\n"
+            "Да, на все работы 6 месяцев"
         )
-        
-    else:
-        # Обработка заявок
-        waiting_for = context.user_data.get('waiting_for')
-        
-        if waiting_for in ['diagnostics', 'order']:
-            # Создаем контакт и сделку в amoCRM
-            try:
-                # Извлекаем данные из сообщения (упрощенно)
-                service_type = "AI-диагностика" if waiting_for == 'diagnostics' else "Заказ услуги"
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка обычных сообщений"""
+    message_text = update.message.text
+    user = update.effective_user
+    
+    # Проверяем, содержит ли сообщение заявку
+    lines = message_text.strip().split('\n')
+    
+    if len(lines) >= 3:  # Минимум имя, телефон, описание
+        try:
+            # Парсим данные заявки
+            name = lines[0].strip()
+            phone = lines[1].strip()
+            service_type = "Общий запрос"
+            description = message_text
+            
+            # Определяем тип услуги
+            text_lower = message_text.lower()
+            if any(word in text_lower for word in ['вентиляция', 'вентилятор', 'воздух']):
+                service_type = "Вентиляция"
+            elif any(word in text_lower for word in ['кондиционер', 'сплит', 'охлаждение']):
+                service_type = "Кондиционер"
+            elif any(word in text_lower for word in ['холодильник', 'морозильник', 'холодильное']):
+                service_type = "Холодильное оборудование"
+            
+            # Создаем контакт в amoCRM
+            contact_id = amocrm.create_contact(name, phone, user.id)
+            
+            if contact_id:
+                # Создаем сделку
+                lead_id = amocrm.create_lead(name, contact_id, service_type, description)
                 
-                # Создаем контакт
-                contact_id = await create_amocrm_contact(
-                    name=user.first_name or "Клиент Telegram",
-                    phone="Указать в сообщении",
-                    telegram_id=user.id
-                )
-                
-                if contact_id:
-                    # Создаем сделку
-                    lead_id = await create_amocrm_lead(
-                        contact_id=contact_id,
-                        service_type=service_type,
-                        description=text,
-                        telegram_username=user.username or str(user.id)
+                if lead_id:
+                    # Создаем задачу
+                    amocrm.create_task(lead_id, f"Обработать заявку: {service_type}")
+                    
+                    # Подтверждение пользователю
+                    await update.message.reply_text(
+                        f"✅ Заявка принята!\n\n"
+                        f"📋 Номер заявки: #{lead_id}\n"
+                        f"👤 Клиент: {name}\n"
+                        f"🔧 Услуга: {service_type}\n"
+                        f"📞 Телефон: {phone}\n\n"
+                        f"🕐 Наш менеджер свяжется с вами в течение 30 минут!\n\n"
+                        f"📱 Для срочных вопросов звоните: +7 922 130-83-65"
                     )
                     
-                    if lead_id:
-                        await update.message.reply_text(
-                            "✅ Заявка принята!\n\n"
-                            f"📋 Номер заявки: #{lead_id}\n"
-                            "📞 Наш менеджер свяжется с вами в течение 15 минут\n\n"
-                            "Спасибо за обращение! 🙏"
-                        )
-                    else:
-                        await update.message.reply_text(
-                            "✅ Заявка принята!\n\n"
-                            "📞 Наш менеджер свяжется с вами в течение 15 минут\n\n"
-                            "Спасибо за обращение! 🙏"
-                        )
+                    logger.info(f"Заявка создана: Lead ID {lead_id}, Contact ID {contact_id}")
                 else:
                     await update.message.reply_text(
-                        "✅ Заявка принята!\n\n"
-                        "📞 Наш менеджер свяжется с вами в течение 15 минут\n\n"
-                        "Спасибо за обращение! 🙏"
+                        "❌ Ошибка при создании заявки. Позвоните нам: +7 922 130-83-65"
                     )
-                    
-            except Exception as e:
-                logger.error(f"Ошибка обработки заявки: {e}")
+            else:
                 await update.message.reply_text(
-                    "✅ Заявка принята!\n\n"
-                    "📞 Наш менеджер свяжется с вами в течение 15 минут\n\n"
-                    "Спасибо за обращение! 🙏"
+                    "❌ Ошибка при обработке данных. Позвоните нам: +7 922 130-83-65"
                 )
-            
-            # Сбрасываем состояние
-            context.user_data['waiting_for'] = None
-            
-        else:
+                
+        except Exception as e:
+            logger.error(f"Ошибка обработки заявки: {e}")
             await update.message.reply_text(
-                "Используйте кнопки меню для выбора нужной опции 👆"
+                "❌ Ошибка при обработке заявки. Позвоните нам: +7 922 130-83-65"
             )
+    else:
+        # Обычное сообщение
+        await update.message.reply_text(
+            "🤖 Я помогу вам с заказом услуг HVAC!\n\n"
+            "Используйте кнопки меню или опишите вашу заявку в формате:\n"
+            "• Имя\n"
+            "• Телефон\n"
+            "• Тип услуги\n"
+            "• Описание проблемы"
+        )
 
 def main():
-    """Главная функция запуска бота"""
-    if not TELEGRAM_TOKEN:
-        logger.error("Не задан TELEGRAM_TOKEN")
-        return
-    
+    """Основная функция"""
     # Создаем приложение
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     
     # Добавляем обработчики
     application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(
+        filters.Regex("^(🔧 AI-диагностика|📋 Заказать услугу|📞 Контакты|❓ FAQ)$"), 
+        handle_buttons
+    ))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Инициализируем amoCRM токен при запуске
-    asyncio.create_task(get_amocrm_token())
-    
     # Запускаем бота
-    logger.info("Бот запущен")
-    application.run_polling()
+    logger.info("Бот DS-EKB запущен!")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == '__main__':
     main()
